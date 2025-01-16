@@ -3,7 +3,9 @@ import math
 import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
+from tkinter import Tk, Label, StringVar, Button
 from datetime import datetime
+import time
 
 # Inhaler resistances (Pa^0.5 x s x L^-1)
 INHALER_RESISTANCES = {
@@ -18,29 +20,28 @@ class InhalerLogger:
         self.baud_rate = baud_rate
         self.inhaler_resistance = INHALER_RESISTANCES[inhaler]
         self.data = []
-        self.start_time = None
+        self.first_measurement = None
+        self.serial_connection = None
 
-        # Serial connection
-        try:
-            self.serial_connection = serial.Serial(self.serial_port, self.baud_rate, timeout=1)
-            print(f"Connected to {self.serial_port} at {self.baud_rate} baud.")
-        except Exception as e:
-            print(f"Failed to connect to {self.serial_port}: {e}")
-            self.serial_connection = None
+        # Retry connecting to the serial port
+        for _ in range(5):  # Retry 5 times
+            try:
+                self.serial_connection = serial.Serial(self.serial_port, self.baud_rate, timeout=1)
+                print(f"Connected to {self.serial_port} at {self.baud_rate} baud.")
+                break
+            except Exception as e:
+                print(f"Failed to connect to {self.serial_port}. Retrying... ({e})")
+                time.sleep(2)
 
-        # Plot setup
-        self.fig, self.ax = plt.subplots(figsize=(8, 4))
-        self.ax.set_title("Flow Rate (L/min) vs. Measurement Time (s)")
-        self.ax.set_xlabel("Measurement Time (s)")
-        self.ax.set_ylabel("Flow Rate (L/min)")
-        self.line, = self.ax.plot([], [], 'b-')
+        if not self.serial_connection:
+            print("Failed to establish serial connection. Please check the port and try again.")
 
     def calculate_flow_rate(self, pressure_drop_kpa):
         """
         Calculate the flow rate from the pressure drop using the inhaler resistance.
         """
-        pressure_drop_pa = pressure_drop_kpa * 1000
-        sqrt_pressure_drop = math.sqrt(pressure_drop_pa)
+        pressure_drop_pa = pressure_drop_kpa * 1000  # Convert to Pa
+        sqrt_pressure_drop = math.sqrt(pressure_drop_pa)  # Square root
         flow_rate = (sqrt_pressure_drop / self.inhaler_resistance) * 60  # Convert to L/min
         return round(flow_rate, 2)
 
@@ -77,78 +78,152 @@ class InhalerLogger:
                 "Flow Rate (L/min)": flow_rate,
             }
 
-            if not self.start_time:
-                self.start_time = datetime(year, month, day, hour, minute, second)
+            if not self.first_measurement:
+                self.first_measurement = parsed_data  # Save the first measurement
 
             return parsed_data
         except Exception as e:
             print(f"Error parsing data: {line} -> {e}")
             return None
 
+class InhalerUI:
+    def __init__(self, logger):
+        self.logger = logger
+
+        # GUI Setup
+        self.root = Tk()
+        self.root.title("Inhaler Data Logger")
+        self.running = True  # To track if the program is still running
+
+        # Variables to hold constant values
+        self.date_time_var = StringVar(value="N/A")
+        self.temp_var = StringVar(value="N/A")
+        self.humidity_var = StringVar(value="N/A")
+        self.pressure_var = StringVar(value="N/A")
+
+        # GUI Layout
+        self.setup_ui()
+
+        # Plot Setup
+        self.fig, self.ax = plt.subplots(figsize=(8, 4))
+        self.ax.set_title("Flow Rate (L/min) vs. Measurement Time (s)")
+        self.ax.set_xlabel("Measurement Time (s)")
+        self.ax.set_ylabel("Flow Rate (L/min)")
+        self.line, = self.ax.plot([], [], 'b-')
+        self.ani = FuncAnimation(self.fig, self.update_plot, interval=100, cache_frame_data=False)
+
+    def setup_ui(self):
+        """
+        Setup the user interface with labels for constant values.
+        """
+        Label(self.root, text="Start Date and Time:").grid(row=0, column=0, sticky="w")
+        Label(self.root, textvariable=self.date_time_var).grid(row=0, column=1, sticky="w")
+
+        Label(self.root, text="Temperature (C):").grid(row=1, column=0, sticky="w")
+        Label(self.root, textvariable=self.temp_var).grid(row=1, column=1, sticky="w")
+
+        Label(self.root, text="Humidity (%):").grid(row=2, column=0, sticky="w")
+        Label(self.root, textvariable=self.humidity_var).grid(row=2, column=1, sticky="w")
+
+        Label(self.root, text="Atmospheric Pressure (hPa):").grid(row=3, column=0, sticky="w")
+        Label(self.root, textvariable=self.pressure_var).grid(row=3, column=1, sticky="w")
+
+        Button(self.root, text="Save Data", command=self.save_data).grid(row=4, column=0, pady=10)
+        Button(self.root, text="Quit", command=self.quit_program).grid(row=4, column=1, pady=10)
+
+    def update_constants(self):
+        """
+        Update the constant values on the UI using the first measurement.
+        """
+        if self.logger.first_measurement:
+            first = self.logger.first_measurement
+            self.date_time_var.set(f"{first['Year']}-{first['Month']:02d}-{first['Day']:02d} "
+                                   f"{first['Hour']:02d}:{first['Minute']:02d}:{first['Second']:02d}")
+            self.temp_var.set(f"{first['Temperature (C)']:.1f}")
+            self.humidity_var.set(f"{first['Humidity (%)']:.1f}")
+            self.pressure_var.set(f"{first['Atmospheric Pressure (hPa)']:.1f}")
+
     def update_plot(self, i):
         """
         Update the plot dynamically with new data.
         """
-        if self.serial_connection and self.serial_connection.in_waiting > 0:
+        if self.running and self.logger.serial_connection:
             try:
-                line = self.serial_connection.readline().decode('utf-8').strip()
-                print(f"Raw Data Received: {line}")  # Debugging
-                parsed_data = self.parse_data(line)
-                if parsed_data:
-                    print(f"Parsed Data: {parsed_data}")  # Debugging
-                    self.data.append(parsed_data)
+                if self.logger.serial_connection.in_waiting > 0:
+                    line = self.logger.serial_connection.readline().decode('utf-8').strip()
+                    parsed_data = self.logger.parse_data(line)
+                    if parsed_data:
+                        self.logger.data.append(parsed_data)
+            except serial.SerialException as e:
+                print(f"SerialException: {e}")
+                self.logger.serial_connection = None  # Mark the connection as invalid
             except Exception as e:
                 print(f"Error reading serial data: {e}")
 
+        # Update constant values if this is the first measurement
+        if self.logger.first_measurement:
+            self.update_constants()
+
         # Prepare data for plotting
-        times = [entry["Measurement Time (s)"] for entry in self.data]
-        flow_rates = [entry["Flow Rate (L/min)"] for entry in self.data]
+        times = [entry["Measurement Time (s)"] for entry in self.logger.data]
+        flow_rates = [entry["Flow Rate (L/min)"] for entry in self.logger.data]
 
         self.line.set_data(times, flow_rates)
         self.ax.relim()
         self.ax.autoscale_view()
 
-    def start_logging(self):
-        """
-        Start logging and plotting data.
-        """
-        ani = FuncAnimation(self.fig, self.update_plot, interval=100, cache_frame_data=False)
-        plt.show()
-
-    def save_data(self, filename="inhaler_data.csv"):
+    def save_data(self):
         """
         Save the data to a CSV file.
         """
-        if self.data:
-            df = pd.DataFrame(self.data)
+        if self.logger.data:
+            df = pd.DataFrame(self.logger.data)
+            filename = "inhaler_data.csv"
             df.to_csv(filename, index=False)
             print(f"Data saved to {filename}")
         else:
             print("No data to save.")
 
-    def close_connection(self):
+    def quit_program(self):
         """
-        Close the serial connection.
+        Exit the program and close the serial connection.
         """
-        if self.serial_connection:
-            self.serial_connection.close()
-            print("Serial connection closed.")
+        # Stop the animation loop
+        self.ani.event_source.stop()
+
+        # Prevent further updates
+        self.running = False
+
+        # Close the serial connection
+        if self.logger.serial_connection:
+            try:
+                self.logger.serial_connection.close()
+                print("Serial connection closed.")
+            except Exception as e:
+                print(f"Error closing serial connection: {e}")
+
+        # Quit the GUI
+        self.root.quit()
+
+    def start(self):
+        """
+        Start the GUI and the plotting process.
+        """
+        plt.show()
+        self.root.mainloop()
 
 if __name__ == "__main__":
-    # Set up parameters
-    port = "COM7"  # Replace with your actual COM port
+    port = "COM7"  # Update with your actual COM port
     baud_rate = 9600
-    inhaler = "Inhaler A"  # Replace with the desired inhaler type
+    inhaler = "Inhaler A"
 
-    # Initialize logger
     logger = InhalerLogger(port, baud_rate, inhaler)
+    ui = InhalerUI(logger)
 
     try:
-        # Start logging and plotting
-        logger.start_logging()
+        ui.start()
     except KeyboardInterrupt:
         print("Exiting...")
     finally:
-        # Save data and close connection
-        logger.save_data()
-        logger.close_connection()
+        if logger.serial_connection:
+            logger.serial_connection.close()
