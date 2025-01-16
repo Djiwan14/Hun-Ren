@@ -3,24 +3,37 @@ import math
 import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
-from tkinter import Tk, Label, StringVar, Button
+from tkinter import Tk, Label, StringVar, IntVar, DoubleVar, Entry, Button, ttk
 from datetime import datetime
 import time
 
-# Inhaler resistances (Pa^0.5 x s x L^-1)
+# Inhaler names and resistances (Pa^0.5 x s x L^-1)
 INHALER_RESISTANCES = {
-    "Inhaler A": 1.0,
-    "Inhaler B": 1.2,
-    "Inhaler C": 1.5,
+    "NEXThaler": 66.8,
+    "Turbuhaler": 62.8,
+    # "Ellipta": 52.5,
+    # "Breezhaler": 36.2,
+    # "Diskus": 48.7,
+    # "Easyhaler": 90.0,
+    # "Genuair": 59.2,
+    # "Aerolizer": 35.5,
+    # "HandiHaler": 91.0,
+    # "Elpenhaler": 55.2,
+    # "Spiromax": 59.4,
+    # "Axahaler": 36.0,
+    # "Forspiro": 49.3,
+    # "Twisthaler": 78.6,
+    # "Novolizer": 52.5,
+    # "Spinhaler": 25.7
 }
 
 class InhalerLogger:
-    def __init__(self, port, baud_rate, inhaler="Inhaler A"):
+    def __init__(self, port, baud_rate):
         self.serial_port = port
         self.baud_rate = baud_rate
-        self.inhaler_resistance = INHALER_RESISTANCES[inhaler]
         self.data = []
         self.first_measurement = None
+        self.inhaler_resistance = None
         self.serial_connection = None
 
         # Retry connecting to the serial port
@@ -95,6 +108,17 @@ class InhalerUI:
         self.root.title("Inhaler Data Logger")
         self.running = True  # To track if the program is still running
 
+        # Variables for patient and measurement data
+        self.location_id_var = StringVar()
+        self.patient_id_var = StringVar(value="IE")
+        self.sex_var = StringVar()
+        self.birth_year_var = IntVar()
+        self.birth_month_var = IntVar()
+        self.birth_day_var = IntVar()
+        self.height_var = DoubleVar()
+        self.weight_var = DoubleVar()
+        self.inhaler_var = StringVar(value=list(INHALER_RESISTANCES.keys())[0])  # Default to the first inhaler
+
         # Variables to hold constant values
         self.date_time_var = StringVar(value="N/A")
         self.temp_var = StringVar(value="N/A")
@@ -114,34 +138,38 @@ class InhalerUI:
 
     def setup_ui(self):
         """
-        Setup the user interface with labels for constant values.
+        Setup the user interface with fields for patient and measurement data.
         """
-        Label(self.root, text="Start Date and Time:").grid(row=0, column=0, sticky="w")
-        Label(self.root, textvariable=self.date_time_var).grid(row=0, column=1, sticky="w")
+        # Patient and measurement data
+        Label(self.root, text="Measurement Location ID:").grid(row=0, column=0, sticky="w")
+        Entry(self.root, textvariable=self.location_id_var).grid(row=0, column=1, sticky="w")
 
-        Label(self.root, text="Temperature (C):").grid(row=1, column=0, sticky="w")
-        Label(self.root, textvariable=self.temp_var).grid(row=1, column=1, sticky="w")
+        Label(self.root, text="Patient ID (IEXXXX):").grid(row=1, column=0, sticky="w")
+        Entry(self.root, textvariable=self.patient_id_var).grid(row=1, column=1, sticky="w")
 
-        Label(self.root, text="Humidity (%):").grid(row=2, column=0, sticky="w")
-        Label(self.root, textvariable=self.humidity_var).grid(row=2, column=1, sticky="w")
+        Label(self.root, text="Sex:").grid(row=2, column=0, sticky="w")
+        ttk.Combobox(self.root, textvariable=self.sex_var, values=["Male", "Female"]).grid(row=2, column=1, sticky="w")
 
-        Label(self.root, text="Atmospheric Pressure (hPa):").grid(row=3, column=0, sticky="w")
-        Label(self.root, textvariable=self.pressure_var).grid(row=3, column=1, sticky="w")
+        Label(self.root, text="Birth Year:").grid(row=3, column=0, sticky="w")
+        Entry(self.root, textvariable=self.birth_year_var).grid(row=3, column=1, sticky="w")
 
-        Button(self.root, text="Save Data", command=self.save_data).grid(row=4, column=0, pady=10)
-        Button(self.root, text="Quit", command=self.quit_program).grid(row=4, column=1, pady=10)
+        Label(self.root, text="Birth Month:").grid(row=4, column=0, sticky="w")
+        Entry(self.root, textvariable=self.birth_month_var).grid(row=4, column=1, sticky="w")
 
-    def update_constants(self):
-        """
-        Update the constant values on the UI using the first measurement.
-        """
-        if self.logger.first_measurement:
-            first = self.logger.first_measurement
-            self.date_time_var.set(f"{first['Year']}-{first['Month']:02d}-{first['Day']:02d} "
-                                   f"{first['Hour']:02d}:{first['Minute']:02d}:{first['Second']:02d}")
-            self.temp_var.set(f"{first['Temperature (C)']:.1f}")
-            self.humidity_var.set(f"{first['Humidity (%)']:.1f}")
-            self.pressure_var.set(f"{first['Atmospheric Pressure (hPa)']:.1f}")
+        Label(self.root, text="Birth Day:").grid(row=5, column=0, sticky="w")
+        Entry(self.root, textvariable=self.birth_day_var).grid(row=5, column=1, sticky="w")
+
+        Label(self.root, text="Height (cm):").grid(row=6, column=0, sticky="w")
+        Entry(self.root, textvariable=self.height_var).grid(row=6, column=1, sticky="w")
+
+        Label(self.root, text="Weight (kg):").grid(row=7, column=0, sticky="w")
+        Entry(self.root, textvariable=self.weight_var).grid(row=7, column=1, sticky="w")
+
+        Label(self.root, text="Select Inhaler:").grid(row=8, column=0, sticky="w")
+        ttk.Combobox(self.root, textvariable=self.inhaler_var, values=list(INHALER_RESISTANCES.keys())).grid(row=8, column=1, sticky="w")
+
+        Button(self.root, text="Save Data", command=self.save_data).grid(row=9, column=0, pady=10)
+        Button(self.root, text="Quit", command=self.quit_program).grid(row=9, column=1, pady=10)
 
     def update_plot(self, i):
         """
@@ -151,6 +179,7 @@ class InhalerUI:
             try:
                 if self.logger.serial_connection.in_waiting > 0:
                     line = self.logger.serial_connection.readline().decode('utf-8').strip()
+                    self.logger.inhaler_resistance = INHALER_RESISTANCES[self.inhaler_var.get()]
                     parsed_data = self.logger.parse_data(line)
                     if parsed_data:
                         self.logger.data.append(parsed_data)
@@ -159,10 +188,6 @@ class InhalerUI:
                 self.logger.serial_connection = None  # Mark the connection as invalid
             except Exception as e:
                 print(f"Error reading serial data: {e}")
-
-        # Update constant values if this is the first measurement
-        if self.logger.first_measurement:
-            self.update_constants()
 
         # Prepare data for plotting
         times = [entry["Measurement Time (s)"] for entry in self.logger.data]
@@ -178,6 +203,12 @@ class InhalerUI:
         """
         if self.logger.data:
             df = pd.DataFrame(self.logger.data)
+            df["Measurement Location ID"] = self.location_id_var.get()
+            df["Patient ID"] = self.patient_id_var.get()
+            df["Sex"] = self.sex_var.get()
+            df["Birth Date"] = f"{self.birth_year_var.get()}-{self.birth_month_var.get():02d}-{self.birth_day_var.get():02d}"
+            df["Height (cm)"] = self.height_var.get()
+            df["Weight (kg)"] = self.weight_var.get()
             filename = "inhaler_data.csv"
             df.to_csv(filename, index=False)
             print(f"Data saved to {filename}")
@@ -190,8 +221,6 @@ class InhalerUI:
         """
         # Stop the animation loop
         self.ani.event_source.stop()
-
-        # Prevent further updates
         self.running = False
 
         # Close the serial connection
@@ -202,7 +231,6 @@ class InhalerUI:
             except Exception as e:
                 print(f"Error closing serial connection: {e}")
 
-        # Quit the GUI
         self.root.quit()
 
     def start(self):
@@ -215,9 +243,8 @@ class InhalerUI:
 if __name__ == "__main__":
     port = "COM7"  # Update with your actual COM port
     baud_rate = 9600
-    inhaler = "Inhaler A"
 
-    logger = InhalerLogger(port, baud_rate, inhaler)
+    logger = InhalerLogger(port, baud_rate)
     ui = InhalerUI(logger)
 
     try:
